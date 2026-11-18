@@ -1,9 +1,28 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow read/write to all collections (personal app, no auth needed)
-    match /{document=**} {
-      allow read, write: if true;
+
+    // Signed in with a verified Google account that is on the allowlist.
+    // Add people in the Firebase console: collection `allowlist`, document id = their email.
+    function allowed() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && exists(/databases/$(database)/documents/allowlist/$(request.auth.token.email));
     }
+
+    // Each person can only check their own allowlist entry; nobody can edit it from the app.
+    match /allowlist/{email} {
+      allow read: if request.auth != null && request.auth.token.email == email;
+      allow write: if false;
+    }
+
+    match /weights/{id}      { allow read, create: if allowed(); }
+    match /measurements/{id} { allow read, create: if allowed(); }
+    match /food/{id}         { allow read, create: if allowed(); }
+
+    // Plans are written only by the planTomorrow Cloud Function.
+    match /plans/{id}        { allow read: if allowed(); }
+
+    // Everything else is closed.
   }
 }

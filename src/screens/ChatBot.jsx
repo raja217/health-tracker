@@ -1,7 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { db } from '../firebase.js'
 import { collection, addDoc, query, where, getDocs, orderBy, limit, Timestamp } from 'firebase/firestore'
-import { ANTHROPIC_API_KEY } from '../App.jsx'
+import { nutritionFn } from '../firebase.js'
+import PlanCard from '../components/PlanCard.jsx'
+import { planTomorrow, getPlan, localDateStr } from '../utils/planner.js'
+
+const PLAN_REGEX = /\b(plan|suggest|menu|eat)\b.*\b(tomorrow|next day|naalai)\b|\b(tomorrow|next day|naalai)\b.*\b(plan|menu|eat)\b/i
 
 const today = () => new Date().toISOString().split('T')[0]
 const todayDay = () => new Date().getDay() // 0=Sun,1=Mon...
@@ -26,21 +30,8 @@ const MEAS_FIELDS = { ask_neck:'neck', ask_chest:'chest', ask_waist:'waist', ask
 
 async function callAI(userText) {
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 400,
-        system: `You are NutriBot, a friendly nutrition assistant. The user tells you what they ate.
-Respond with a brief friendly message + this exact JSON block:
-<nutrition>{"items":[{"food":"name","qty":"amount","cal":number,"protein":number,"carbs":number,"fat":number}],"total":{"cal":number,"protein":number,"carbs":number,"fat":number}}</nutrition>
-Keep response short and encouraging. Use 1-2 emojis max.`,
-        messages: [{ role: 'user', content: userText }]
-      })
-    })
-    const data = await res.json()
-    return data.content?.[0]?.text || null
+    const res = await nutritionFn({ text: userText })
+    return res.data?.reply || null
   } catch {
     return null
   }
@@ -97,6 +88,7 @@ function Msg({ m, personColor }) {
           {text}
         </div>
         {nutrition && <NutritionPill data={nutrition} />}
+        {m.plan && <PlanCard plan={m.plan} color={personColor} title={m.planTitle} />}
       </div>
     </div>
   )
@@ -139,6 +131,29 @@ export default function ChatBot({ person, onBack, onDashboard }) {
       addBot(firstMsg)
       setChatState(STATE.FOOD_MODE)
     }
+
+    // Show today's plan if one was made yesterday
+    const todaysPlan = await getPlan(person.id, localDateStr(0))
+    if (todaysPlan) {
+      setMsgs(prev => [...prev, { role: 'bot', content: "📋 Here's the plan you made for today:", plan: todaysPlan, planTitle: "Today's plan" }])
+    }
+  }
+
+  // ── Next-day plan ─────────────────────────────────────────
+  async function runPlan() {
+    if (loading) return
+    setLoading(true)
+    try {
+      const plan = await planTomorrow(person)
+      if (plan) {
+        setMsgs(prev => [...prev, { role: 'bot', content: "🗓️ Here's tomorrow's plan, built around what you ate today. It'll be waiting here tomorrow morning.", plan }])
+      } else {
+        addBot("Couldn't build a plan right now. Try again in a minute.")
+      }
+    } catch {
+      addBot("Couldn't reach the AI to build the plan. Try again in a minute.")
+    }
+    setLoading(false)
   }
 
   async function checkWeightToday() {
@@ -172,6 +187,12 @@ export default function ChatBot({ person, onBack, onDashboard }) {
     if (!val || loading) return
     setInput('')
     addUser(val)
+
+    // "plan tomorrow" works from any step of the chat
+    if (PLAN_REGEX.test(val)) {
+      await runPlan()
+      return
+    }
 
     // Weight logging
     if (chatState === STATE.ASK_WEIGHT) {
@@ -307,7 +328,12 @@ export default function ChatBot({ person, onBack, onDashboard }) {
       }}>
         {chatState === STATE.FOOD_MODE && (
           <div style={{ display:'flex', gap:8, marginBottom:10, overflowX:'auto', paddingBottom:2 }}>
-            {['🥚 2 eggs + toast','🍗 Grilled chicken','🥗 Caesar salad','🍎 Apple snack','🐟 Salmon dinner'].map(q=>(
+            <button onClick={runPlan} disabled={loading}
+              style={{background:person.color,border:'none',color:'#fff',fontWeight:700,
+              borderRadius:20,padding:'5px 12px',cursor:'pointer',fontSize:12,whiteSpace:'nowrap',flexShrink:0}}>
+              📋 Plan tomorrow
+            </button>
+            {['🥚 2 eggs + 1 dosa + sambar','🍛 100g rice + kootu + sambar','🐟 Fish curry 150g','🥛 Buttermilk + 20 almonds'].map(q=>(
               <button key={q} onClick={()=>setInput(q)}
                 style={{background:'rgba(255,255,255,0.05)',border:`1px solid ${person.color}44`,color:'#bbb',
                 borderRadius:20,padding:'5px 12px',cursor:'pointer',fontSize:12,whiteSpace:'nowrap',flexShrink:0}}>
