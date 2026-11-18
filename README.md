@@ -1,6 +1,8 @@
 # 💪 HealthBot — 3 Person Tracker
 ## Complete Setup & Deployment Guide
 
+> **Using the secure version with the next-day planner?** Follow [DEPLOY.md](DEPLOY.md). The API key no longer goes in `App.jsx`.
+
 ---
 
 ## ⏱️ Total time: ~20 minutes

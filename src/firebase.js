@@ -1,11 +1,11 @@
-// Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
+import { getAnalytics, isSupported } from "firebase/analytics";
+import { getFirestore } from "firebase/firestore";
+import { getAuth, GoogleAuthProvider } from "firebase/auth";
+import { getFunctions, httpsCallable } from "firebase/functions";
 
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+// Firebase web config is meant to be public; access is controlled by
+// Firestore rules + sign-in, not by hiding these values.
 const firebaseConfig = {
   apiKey: "AIzaSyCHCBHSY3ERBcg2pz8lCD8I2myGHe5t-0I",
   authDomain: "chatbot-foodtrack.firebaseapp.com",
@@ -16,6 +16,14 @@ const firebaseConfig = {
   measurementId: "G-BRDWK9BKTE"
 };
 
-// Initialize Firebase
 const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
+isSupported().then(ok => ok && getAnalytics(app)).catch(() => {});
+
+export const db = getFirestore(app);
+export const auth = getAuth(app);
+export const googleProvider = new GoogleAuthProvider();
+
+// AI calls go through Cloud Functions so the Anthropic key never reaches the browser
+const functions = getFunctions(app, "asia-south1");
+export const nutritionFn = httpsCallable(functions, "nutrition");
+export const planTomorrowFn = httpsCallable(functions, "planTomorrow", { timeout: 120000 });
